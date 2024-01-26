@@ -129,11 +129,11 @@ function print_help
     echo "DESCRIPTION:"
     echo -e "\tThis script automatically sets up and runs Caravan - the Execution and Beacon-Chain -the Consensus layers of Fastex chain (Bahamut) blockchain."
     echo -e "\tThe execution layer client that operates Fastex Chain is written in Go. Running the execution layer helps the user setup and maintain a Caravan node."
-    echo -e "\tThe consensus layer is an implementation of the proof-of-stake-and-activity consensus specification." 
+    echo -e "\tThe consensus layer is an implementation of the proof-of-stake-and-activity consensus specification."
     #Usage
     echo -e "\n"
     echo "USAGE:"
-    echo -e "\tbahamut OPTIONS [arguments]" 
+    echo -e "\tbahamut OPTIONS [arguments]"
     #Mandatory options
     echo -e "\n"
     echo "MANDATORY OPTIONS:"
@@ -167,6 +167,15 @@ function print_help
     echo -e "\n"
     echo -e "\t- ./bahamut reset"
     echo -e "\t\t If neither Sahara nor Oasis network is specified, both databases will be reset. In order to reset one of them, provide the network name. Example ./bahamut reset -n=oasis."
+    echo -e "\n"
+    #Launchctl commands
+    echo -e "\n"
+    echo -e "LAUNCHCTL COMMANDS EXAMPLES:"
+    echo -e "\tsudo launchctl load /Library/LaunchDaemons/com.example.bahamut_oasis_execution.plist - Start the Execution Layer node."
+    echo -e "\tsudo launchctl unload /Library/LaunchDaemons/com.example.bahamut_sahara_consensus.plist - Stop the Consensus Layer node."
+    echo -e "\tsudo launchctl kickstart -k system/com.example.bahamut_sahara_consensus - Restart the Consensus Layer node."
+    echo -e "\tsudo launchctl list | grep com.example.bahamut_oasis_execution - Show the Execution Layer node status."
+    echo -e "\n"
     #Systemctl commands
     echo -e "\n"
     echo -e "SYSTEMCTL COMMANDS EXAMPLES:"
@@ -294,7 +303,7 @@ function check_install_dependency
 {
     if ! which openssl > /dev/null 2>&1; then
         error "The openssl is not found"
-        exit 1     
+        exit 1
     fi
     if ! which wget > /dev/null 2>&1; then
         error "The wget could not be found. You need to install wget to run the script."
@@ -306,6 +315,10 @@ function check_install_dependency
     fi
     if ! which curl > /dev/null 2>&1; then
         error "The curl could not be found. You need to install curl to run the script."
+        exit 1
+    fi
+    if ! which pidof > /dev/null 2>&1; then
+        error "The pidof could not be found. You need to install pidof to run the script."
         exit 1
     fi
 }
@@ -391,7 +404,15 @@ function check_versions_flag
         error "Invalid github version number format. Please use the format (example v1.0.0)."
         exit 1
     else
-        local t=$(curl -s "$binaries_tags_url" | grep -oP '"name": "\K[^"]+')
+        case "$(uname)" in
+            Darwin*)
+                local t=$(curl -s "$binaries_tags_url" | grep -o '"name": "[^"]*' | cut -d '"' -f 4)
+                ;;
+            *)
+                local t=$(curl -s "$binaries_tags_url" | grep -oP '"name": "\K[^"]+')
+                ;;
+        esac
+
         if ! [[ $t =~ (^|[[:space:]])"$version"($|[[:space:]]) ]]; then
             error "The entered version was not found on github."
             exit 1
@@ -503,17 +524,81 @@ function download_genesis
     fi
 }
 
-function get_systemctl_files_path
-{
+function get_systemctl_files_path {
+    case "$(uname)" in
+        Darwin*)
+            get_systemctl_files_path_darwin
+            ;;
+        *)
+            get_systemctl_files_path_linux
+            ;;
+    esac
+}
+
+function get_systemctl_files_path_linux {
     echo "/etc/systemd/system/bahamut_${1}_${2}.service"
 }
 
-function get_systemctl_execution_start
+function get_systemctl_files_path_darwin {
+    echo "/Library/LaunchDaemons/bahamut_${1}_${2}.plist"
+}
+
+function get_systemctl_execution_start {
+    case "$(uname)" in
+        Darwin*)
+            get_systemctl_execution_start_darwin
+            ;;
+        *)
+            get_systemctl_execution_start_linux
+            ;;
+    esac
+}
+
+function get_systemctl_execution_start_darwin {
+    echo "ProgramArguments=${path}/Bahamut/${2}"
+    echo "  --${1}"
+    echo "  --authrpc.jwtsecret=${path}/Bahamut/${1}/datadirs/jwt.hex"
+    echo "  --config=${path}/Bahamut/${1}/$(get_config_name ${1})"
+}
+
+function get_systemctl_execution_start_linux
 {
     echo "ExecStart=${path}/Bahamut/${2} --${1} --authrpc.jwtsecret=$path/Bahamut/${1}/datadirs/jwt.hex --config=$path/Bahamut/${1}/$(get_config_name ${1})"
 }
 
-function get_systemctl_consensus_start
+function get_systemctl_consensus_start {
+    case "$(uname)" in
+        Darwin*)
+            get_systemctl_consensus_start_darwin
+            ;;
+        *)
+            get_systemctl_consensus_start_linux
+            ;;
+    esac
+}
+
+function get_systemctl_consensus_start_darwin
+{
+    local o=""
+    if [ "oasis" == "$network" ]; then
+        o="--genesis-state ${path}/Bahamut/oasis/genesis.ssz ${oasis_bootstrap_node}"
+    fi
+    echo "ProgramArguments=${path}/Bahamut/${2}"
+    echo "  --execution-endpoint=http://127.0.0.1:${ports[${1}.authrpc]}"
+    echo "  --p2p-udp-port ${ports[${1}.p2p-udp-port]}"
+    echo "  --p2p-tcp-port ${ports[${1}.p2p-tcp-port]}"
+    echo "  --grpc-gateway-port ${ports[${1}.grpc-gateway-port]}"
+    echo "  --rpc-port ${ports[${1}.rpc-port]}"
+    echo "  --accept-terms-of-use"
+    echo "  --p2p-static-id"
+    echo "  --${min_sync_peers}"
+    echo "  --${1}"
+    echo "  --datadir=${path}/Bahamut/${1}/datadirs/${2}"
+    echo "  --jwt-secret=${path}/Bahamut/${1}/datadirs/jwt.hex"
+    echo "  ${o}"
+}
+
+function get_systemctl_consensus_start_linux
 {
     local o=""
     if [ "oasis" == "$network" ]; then
@@ -522,28 +607,79 @@ function get_systemctl_consensus_start
     echo "ExecStart=${path}/Bahamut/${2} --execution-endpoint="http://127.0.0.1:${ports[${1}.authrpc]}" --p2p-udp-port ${ports[${1}.p2p-udp-port]} --p2p-tcp-port ${ports[${1}.p2p-tcp-port]} --grpc-gateway-port ${ports[${1}.grpc-gateway-port]} --rpc-port ${ports[${1}.rpc-port]} --accept-terms-of-use --p2p-static-id --${min_sync_peers} --${1} --datadir=$path/Bahamut/${1}/datadirs/${2} --jwt-secret=$path/Bahamut/${1}/datadirs/jwt.hex ${o}"
 }
 
-function generate_systemctl_files
+function generate_systemctl_files {
+    case "$(uname)" in
+        Darwin*)
+            generate_systemctl_files_darwin
+            ;;
+        *)
+            generate_systemctl_files_linux
+            ;;
+    esac
+}
+
+function generate_systemctl_files_darwin {
+    local u=$(whoami)
+    local exec_start=$(get_systemctl_${2}_start ${1} ${2})
+    local launchd_file=$(get_systemctl_files_path ${1} ${2})
+    local launchd_file_content="<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+    <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+    <plist version=\"1.0\">
+    <dict>
+        <key>Label</key>
+        <string>com.example.bahamut_${1}_${2}</string>
+        <key>ProgramArguments</key>
+        <array>
+            <string>${path}/Bahamut/${2}</string>
+            <!-- Additional program arguments generated by exec_start -->
+            ${exec_start}
+        </array>
+        <key>WorkingDirectory</key>
+        <string>${path}</string>
+        <key>RunAtLoad</key>
+        <true/>
+        <key>UserName</key>
+        <string>${u}</string>
+        <key>GroupName</key>
+        <string>${u}</string>
+        <key>KeepAlive</key>
+        <false/>
+        <key>StandardErrorPath</key>
+        <string>${path}/Bahamut/${2}_stderr.log</string>
+        <key>StandardOutPath</key>
+        <string>${path}/Bahamut/${2}_stdout.log</string>
+    </dict>
+    </plist>"
+    echo "$launchd_file_content" | sudo tee "${launchd_file}" > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Failed to create the file."
+    fi
+    echo -ne $(info "Starting the generate ${1} ${2} launchd file...")
+    echo " Done"
+}
+
+function generate_systemctl_files_linux
 {
     local u=$(whoami)
     local exec_start=$(get_systemctl_${2}_start ${1} ${2})
     local systemctl_file=$(get_systemctl_files_path ${1} ${2})
     local service_file_content="[Unit]
-Description=The ${2} layer node
+    Description=The ${2} layer node
 
-[Service]
-WorkingDirectory=${path}
-ExecStartPre=/bin/chmod +x ${path}/Bahamut/${2}
-${exec_start}
-User=${u}
-Group=${u}
-Type=simple
-KillSignal=SIGINT
-TimeoutStopSec=120
-Restart=on-failure
-RestartSec=10s
+    [Service]
+    WorkingDirectory=${path}
+    ExecStartPre=/bin/chmod +x ${path}/Bahamut/${2}
+    ${exec_start}
+    User=${u}
+    Group=${u}
+    Type=simple
+    KillSignal=SIGINT
+    TimeoutStopSec=120
+    Restart=on-failure
+    RestartSec=10s
 
-[Install]
-WantedBy=multi-user.target"
+    [Install]
+    WantedBy=multi-user.target"
     echo "$service_file_content" | sudo tee "${systemctl_file}" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "Failed to create the file."
@@ -579,7 +715,42 @@ function init_directory
     mkdir -p $download_path
 }
 
-function init_systemctl
+function init_systemctl {
+    case "$(uname)" in
+        Darwin*)
+            init_systemctl_darwin
+            ;;
+        *)
+            init_systemctl_linux
+            ;;
+    esac
+}
+
+function init_systemctl_darwin
+{
+    c=$(read_confirmation "$(conf "Would you like to run the script with launchctl? Enter:")" "Y/n")
+    if [ "Y" == "$c" ]; then
+        info "This script may require root privileges."
+        for i in $projects; do
+            for j in $network_name; do
+                launchd_file=${j}_${i}_launchd_file
+                launchd_file_name="bahamut_${j}_${i}.plist" #TODO: com.example.
+                if [ ! -f "${!launchd_file}" ]; then
+                    generate_systemctl_files $j $i
+                    sudo launchctl load -w $launchd_file_name > /dev/null 2>&1
+                else
+                    info "The ${launchd_file_name} file already exists."
+                fi
+            done
+        done
+        info "The launchd files are loaded."
+        info "Launchctl commands examples - sudo launchctl start/stop com.example.bahamut_oasis_execution."
+    else
+        info "Deny operation with launchctl."
+    fi
+}
+
+function init_systemctl_linux
 {
     c=$(read_confirmation "$(conf "Would you like to run the script with systemctl? Enther:")" "Y/n")
     if [ "Y" == "$c" ]; then
