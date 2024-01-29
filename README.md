@@ -25,13 +25,13 @@ Ensure that you have the following prerequisites installed on your system:
 
 ```bash
 git clone
-chmod +x bahamut
+chmod +x bahamut.sh
 ```
 
 2. Run the management script to download and install the Caravan execution layer:
 
 ```bash
-./bahamut install
+bash ./bahamut.sh install
 ```
 
 This command will download the latest Caravan binaries from the tagged releases in the execution layer repository. After the install added Bahamut/sahara/sahara_config.toml and Bahamut/oasis/oasis_config.toml config files, in which you can change ports.

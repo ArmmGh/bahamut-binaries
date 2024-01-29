@@ -171,10 +171,10 @@ function print_help
     #Launchctl commands
     echo -e "\n"
     echo -e "LAUNCHCTL COMMANDS EXAMPLES:"
-    echo -e "\tsudo launchctl load /Library/LaunchDaemons/com.example.bahamut_oasis_execution.plist - Start the Execution Layer node."
-    echo -e "\tsudo launchctl unload /Library/LaunchDaemons/com.example.bahamut_sahara_consensus.plist - Stop the Consensus Layer node."
-    echo -e "\tsudo launchctl kickstart -k system/com.example.bahamut_sahara_consensus - Restart the Consensus Layer node."
-    echo -e "\tsudo launchctl list | grep com.example.bahamut_oasis_execution - Show the Execution Layer node status."
+    echo -e "\tsudo launchctl load /Library/LaunchDaemons/com.bahamut.bahamut_oasis_execution.plist - Start the Execution Layer node."
+    echo -e "\tsudo launchctl unload /Library/LaunchDaemons/com.bahamut.bahamut_sahara_consensus.plist - Stop the Consensus Layer node."
+    echo -e "\tsudo launchctl kickstart -k system/bahamut_sahara_consensus - Restart the Consensus Layer node."
+    echo -e "\tsudo launchctl list | grep bahamut_oasis_execution - Show the Execution Layer node status."
     echo -e "\n"
     #Systemctl commands
     echo -e "\n"
@@ -527,10 +527,10 @@ function download_genesis
 function get_systemctl_files_path {
     case "$(uname)" in
         Darwin*)
-            get_systemctl_files_path_darwin
+            get_systemctl_files_path_darwin $1 $2
             ;;
         *)
-            get_systemctl_files_path_linux
+            get_systemctl_files_path_linux $1 $2
             ;;
     esac
 }
@@ -540,16 +540,16 @@ function get_systemctl_files_path_linux {
 }
 
 function get_systemctl_files_path_darwin {
-    echo "/Library/LaunchDaemons/bahamut_${1}_${2}.plist"
+    echo "/Library/LaunchDaemons/com.bahamut.bahamut_${1}_${2}.plist"
 }
 
 function get_systemctl_execution_start {
     case "$(uname)" in
         Darwin*)
-            get_systemctl_execution_start_darwin
+            get_systemctl_execution_start_darwin $1 $2
             ;;
         *)
-            get_systemctl_execution_start_linux
+            get_systemctl_execution_start_linux $1 $2
             ;;
     esac
 }
@@ -569,10 +569,10 @@ function get_systemctl_execution_start_linux
 function get_systemctl_consensus_start {
     case "$(uname)" in
         Darwin*)
-            get_systemctl_consensus_start_darwin
+            get_systemctl_consensus_start_darwin $1 $2
             ;;
         *)
-            get_systemctl_consensus_start_linux
+            get_systemctl_consensus_start_linux $1 $2
             ;;
     esac
 }
@@ -608,12 +608,13 @@ function get_systemctl_consensus_start_linux
 }
 
 function generate_systemctl_files {
+    echo "AAAAA $1 ---- $2"
     case "$(uname)" in
         Darwin*)
-            generate_systemctl_files_darwin
+            generate_systemctl_files_darwin $1 $2
             ;;
         *)
-            generate_systemctl_files_linux
+            generate_systemctl_files_linux $1 $2
             ;;
     esac
 }
@@ -627,7 +628,7 @@ function generate_systemctl_files_darwin {
     <plist version=\"1.0\">
     <dict>
         <key>Label</key>
-        <string>com.example.bahamut_${1}_${2}</string>
+        <string>bahamut_${1}_${2}</string>
         <key>ProgramArguments</key>
         <array>
             <string>${path}/Bahamut/${2}</string>
@@ -680,7 +681,7 @@ function generate_systemctl_files_linux
 
     [Install]
     WantedBy=multi-user.target"
-    echo "$service_file_content" | sudo tee "${systemctl_file}" > /dev/null 2>&1
+    echo "$service_file_content" | tee "${systemctl_file}" > /dev/null 2>&1
     if [ $? -ne 0 ]; then
         echo "Failed to create the file."
     fi
@@ -734,7 +735,7 @@ function init_systemctl_darwin
         for i in $projects; do
             for j in $network_name; do
                 launchd_file=${j}_${i}_launchd_file
-                launchd_file_name="bahamut_${j}_${i}.plist" #TODO: com.example.
+                launchd_file_name="bahamut_${j}_${i}.plist"
                 if [ ! -f "${!launchd_file}" ]; then
                     generate_systemctl_files $j $i
                     sudo launchctl load -w $launchd_file_name > /dev/null 2>&1
@@ -744,7 +745,7 @@ function init_systemctl_darwin
             done
         done
         info "The launchd files are loaded."
-        info "Launchctl commands examples - sudo launchctl start/stop com.example.bahamut_oasis_execution."
+        info "Launchctl commands examples - sudo launchctl start/stop bahamut_oasis_execution."
     else
         info "Deny operation with launchctl."
     fi
@@ -752,7 +753,8 @@ function init_systemctl_darwin
 
 function init_systemctl_linux
 {
-    c=$(read_confirmation "$(conf "Would you like to run the script with systemctl? Enther:")" "Y/n")
+    # c=$(read_confirmation "$(conf "Would you like to run the script with systemctl? Enther:")" "Y/n")
+    local c="Y"
     if [ "Y" == "$c" ]; then
         info "This script requires root privileges."
         for i in $projects; do
